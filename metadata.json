@@ -1,0 +1,8 @@
+{
+  "name": "Remix DY-Note.",
+  "description": "Imported from GitHub: DaniYeroo123-hubB/DY-Note...jesus-christ.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
