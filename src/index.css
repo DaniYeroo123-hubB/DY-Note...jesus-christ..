@@ -819,6 +819,46 @@ body{
         inset 0 1.5px 2px 0 rgba(0, 0, 0, 0.08);
 }
 
+/* Liquid Glass Transparent Minimal Copy Button for Editor Title & Content */
+.liquid-glass-transparent-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 9999px;
+    background: transparent;
+    border: 1px solid transparent;
+    box-shadow: none;
+    color: rgba(100, 116, 139, 0.6);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    cursor: pointer;
+    user-select: none;
+}
+
+.liquid-glass-transparent-copy-btn:hover {
+    background: rgba(255, 255, 255, 0.35);
+    backdrop-filter: blur(12px) saturate(160%);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
+    border-color: rgba(255, 255, 255, 0.5);
+    color: rgba(15, 23, 42, 0.95);
+    box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.04);
+}
+
+.liquid-glass-transparent-copy-btn:active {
+    transform: scale(0.9);
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.liquid-glass-transparent-copy-btn.is-copied {
+    color: #059669;
+    background: rgba(236, 253, 245, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-color: rgba(167, 243, 208, 0.7);
+}
+
 /* Endless Multicolor Gemini Aura Glow for Save Button */
 @keyframes gemini-aurora-spin-endless {
     0% {

@@ -50,7 +50,7 @@ import {
 } from './utils/audio';
 import { LiquidGlassSlider } from './components/LiquidGlassSlider';
 import { RichEditable, RichEditableRef } from './components/RichEditable';
-import { stripHtml, RichTextRenderer } from './utils/richText';
+import { stripHtml, RichTextRenderer, htmlToPlainText } from './utils/richText';
 
 interface DeletedNoteState {
   note: Note;
@@ -156,8 +156,15 @@ export default function App() {
   const [isPinned, setIsPinned] = useState(false);
   const [selectedColor, setSelectedColor] = useState('#000000');
   const [copied, setCopied] = useState(false);
+  const [copiedTitle, setCopiedTitle] = useState(false);
+  const [copiedContent, setCopiedContent] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const colorInputRef = useRef<HTMLInputElement>(null);
+
+  // Independent copy timeout refs
+  const copyBothTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTitleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyContentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Rich editor refs for active selection styling
   const titleEditorRef = useRef<RichEditableRef>(null);
@@ -174,7 +181,7 @@ export default function App() {
   const [deletedNoteInfo, setDeletedNoteInfo] = useState<DeletedNoteState | null>(null);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clear timer on unmount
+  // Clear timers on unmount
   useEffect(() => {
     return () => {
       if (undoTimerRef.current) {
@@ -182,6 +189,15 @@ export default function App() {
       }
       if (autoSaveTimerRef.current) {
         clearTimeout(autoSaveTimerRef.current);
+      }
+      if (copyBothTimerRef.current) {
+        clearTimeout(copyBothTimerRef.current);
+      }
+      if (copyTitleTimerRef.current) {
+        clearTimeout(copyTitleTimerRef.current);
+      }
+      if (copyContentTimerRef.current) {
+        clearTimeout(copyContentTimerRef.current);
       }
     };
   }, []);
@@ -198,6 +214,9 @@ export default function App() {
     setContent('');
     setIsPinned(false);
     setSelectedColor('#000000');
+    setCopied(false);
+    setCopiedTitle(false);
+    setCopiedContent(false);
     setIsColorPickerOpen(false);
     lastActiveEditorRef.current = 'content';
     isInitialEditorLoadRef.current = true;
@@ -218,6 +237,9 @@ export default function App() {
     setContent(note.content);
     setIsPinned(!!note.isPinned);
     setSelectedColor(note.accentColor || note.color || '#000000');
+    setCopied(false);
+    setCopiedTitle(false);
+    setCopiedContent(false);
     setIsColorPickerOpen(false);
     lastActiveEditorRef.current = 'content';
     isInitialEditorLoadRef.current = true;
@@ -568,15 +590,113 @@ export default function App() {
     });
   }, [notes, searchQuery]);
 
-  // Copy note text
-  const handleCopy = () => {
-    playCopySound();
-    const cleanTitleText = stripHtml(title);
-    const cleanContentText = stripHtml(content);
-    const fullText = `${cleanTitleText}\n\n${cleanContentText}`;
-    navigator.clipboard.writeText(fullText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  // Safe helper to copy text to clipboard with iframe/unsecured context fallback
+  const copyTextToClipboard = async (text: string): Promise<boolean> => {
+    if (!text || !text.trim()) return false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+      }
+    } catch {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+      } catch {
+        return false;
+      }
+    }
+  };
+
+  // Copy ONLY the title text
+  const handleCopyTitle = async () => {
+    const rawTitleHtml = titleEditorRef.current?.getHtml() || title;
+    const cleanTitle = htmlToPlainText(rawTitleHtml);
+    if (!cleanTitle.trim()) {
+      return; // Handle empty title gracefully
+    }
+    const success = await copyTextToClipboard(cleanTitle);
+    if (success) {
+      playCopySound();
+      setCopiedTitle(true);
+      if (copyTitleTimerRef.current) clearTimeout(copyTitleTimerRef.current);
+      copyTitleTimerRef.current = setTimeout(() => {
+        setCopiedTitle(false);
+        copyTitleTimerRef.current = null;
+      }, 2000);
+    }
+  };
+
+  // Copy ONLY the note body/text
+  const handleCopyContent = async () => {
+    const rawContentHtml = contentEditorRef.current?.getHtml() || content;
+    const cleanContent = htmlToPlainText(rawContentHtml);
+    if (!cleanContent.trim()) {
+      return; // Handle empty body gracefully
+    }
+    const success = await copyTextToClipboard(cleanContent);
+    if (success) {
+      playCopySound();
+      setCopiedContent(true);
+      if (copyContentTimerRef.current) clearTimeout(copyContentTimerRef.current);
+      copyContentTimerRef.current = setTimeout(() => {
+        setCopiedContent(false);
+        copyContentTimerRef.current = null;
+      }, 2000);
+    }
+  };
+
+  // Copy BOTH Title + Body text (Existing header copy functionality preserved)
+  const handleCopy = async () => {
+    const rawTitleHtml = titleEditorRef.current?.getHtml() || title;
+    const rawContentHtml = contentEditorRef.current?.getHtml() || content;
+    const cleanTitleText = htmlToPlainText(rawTitleHtml);
+    const cleanContentText = htmlToPlainText(rawContentHtml);
+
+    if (!cleanTitleText.trim() && !cleanContentText.trim()) {
+      return;
+    }
+
+    let fullText = '';
+    if (cleanTitleText.trim() && cleanContentText.trim()) {
+      fullText = `${cleanTitleText}\n\n${cleanContentText}`;
+    } else if (cleanTitleText.trim()) {
+      fullText = cleanTitleText;
+    } else {
+      fullText = cleanContentText;
+    }
+
+    const success = await copyTextToClipboard(fullText);
+    if (success) {
+      playCopySound();
+      setCopied(true);
+      if (copyBothTimerRef.current) clearTimeout(copyBothTimerRef.current);
+      copyBothTimerRef.current = setTimeout(() => {
+        setCopied(false);
+        copyBothTimerRef.current = null;
+      }, 2000);
+    }
   };
 
   // Helper date format: 'Aug 13, 6:33 PM'
@@ -1028,7 +1148,7 @@ export default function App() {
                 className="flex items-center gap-2.5 sm:gap-3"
                 style={{ paddingLeft: '10px', paddingRight: '0px', paddingTop: '0px', paddingBottom: '10px', marginLeft: '0px', marginTop: '-10px', marginBottom: '7px', marginRight: '-10px', height: '55px' }}
               >
-                {/* Copy Button */}
+                {/* Copy Both Button (Title + Body) */}
                 {(title || content) && (
                   <motion.button
                     whileHover={{ scale: 1.08 }}
@@ -1036,7 +1156,8 @@ export default function App() {
                     type="button"
                     onClick={handleCopy}
                     className="liquid-glass-btn text-slate-700 hover:text-slate-900 cursor-pointer"
-                    title="Copy to Clipboard"
+                    title={copied ? "Entire Note Copied!" : "Copy Entire Note (Title & Note Body)"}
+                    aria-label={copied ? "Entire note copied to clipboard" : "Copy entire note to clipboard"}
                     style={{ paddingLeft: '0px', paddingTop: '0px', paddingRight: '0px', paddingBottom: '0px', marginLeft: '0px', marginRight: '0px', marginTop: '0px', marginBottom: '0px' }}
                   >
                     {copied ? (
@@ -1111,41 +1232,141 @@ export default function App() {
 
             {/* Title & Body Inputs (Fullscreen canvas) */}
             <div className="max-w-5xl w-full mx-auto my-auto py-8 flex-1 flex flex-col space-y-6">
-              <RichEditable
-                ref={titleEditorRef}
-                placeholder="Title..."
-                initialValue={title}
-                onChange={val => setTitle(val)}
-                onFocus={() => {
-                  lastActiveEditorRef.current = 'title';
-                }}
-                defaultColor="#0f172a"
-                activeColor={selectedColor}
-                isSingleLine={true}
-                className="w-full bg-transparent text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-center"
-                style={{
-                  minHeight: '70px',
-                  lineHeight: '1.2',
-                }}
-                autoFocus
-              />
+              {/* Title Section with top-right independent transparent copy button */}
+              <div className="relative w-full group">
+                <div className="absolute top-2 right-2 z-20 flex items-center">
+                  <AnimatePresence>
+                    {Boolean(htmlToPlainText(title).trim()) && (
+                      <motion.button
+                        key="title-copy-btn"
+                        initial={{ opacity: 0, scale: 0.8, y: -2 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.8, y: -2 }}
+                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                        whileHover={{ scale: 1.12 }}
+                        whileTap={{ scale: 0.9 }}
+                        type="button"
+                        onClick={handleCopyTitle}
+                        className={`liquid-glass-transparent-copy-btn ${copiedTitle ? 'is-copied' : ''}`}
+                        title={copiedTitle ? "Title Copied!" : "Copy Title"}
+                        aria-label={copiedTitle ? "Title copied to clipboard" : "Copy title"}
+                      >
+                        <AnimatePresence mode="wait" initial={false}>
+                          {copiedTitle ? (
+                            <motion.span
+                              key="copied-check"
+                              initial={{ opacity: 0, scale: 0.7 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.7 }}
+                              transition={{ duration: 0.15 }}
+                              className="flex items-center justify-center text-emerald-600"
+                            >
+                              <Check className="w-4 h-4 stroke-[2.6]" />
+                            </motion.span>
+                          ) : (
+                            <motion.span
+                              key="copy-icon"
+                              initial={{ opacity: 0, scale: 0.7 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.7 }}
+                              transition={{ duration: 0.15 }}
+                              className="flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors"
+                            >
+                              <Copy className="w-4 h-4 stroke-[2.2]" />
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
+                </div>
 
-              <RichEditable
-                ref={contentEditorRef}
-                placeholder="Start typing your note here..."
-                initialValue={content}
-                onChange={val => setContent(val)}
-                onFocus={() => {
-                  lastActiveEditorRef.current = 'content';
-                }}
-                defaultColor="#334155"
-                activeColor={selectedColor}
-                isSingleLine={false}
-                className="w-full flex-1 min-h-[50vh] bg-transparent text-base sm:text-lg md:text-xl leading-relaxed font-normal"
-                style={{
-                  minHeight: '50vh',
-                }}
-              />
+                <RichEditable
+                  ref={titleEditorRef}
+                  placeholder="Title..."
+                  initialValue={title}
+                  onChange={val => setTitle(val)}
+                  onFocus={() => {
+                    lastActiveEditorRef.current = 'title';
+                  }}
+                  defaultColor="#0f172a"
+                  activeColor={selectedColor}
+                  isSingleLine={true}
+                  className="w-full bg-transparent text-3xl sm:text-4xl md:text-5xl font-extrabold tracking-tight text-center px-12 sm:px-16"
+                  style={{
+                    minHeight: '70px',
+                    lineHeight: '1.2',
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              {/* Body Section with top-right independent transparent copy button */}
+              <div className="relative w-full flex-1 flex flex-col group">
+                <div className="absolute top-2 right-2 z-20 flex items-center">
+                  <AnimatePresence>
+                    {Boolean(htmlToPlainText(content).trim()) && (
+                      <motion.button
+                        key="content-copy-btn"
+                        initial={{ opacity: 0, scale: 0.8, y: -2 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.8, y: -2 }}
+                        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                        whileHover={{ scale: 1.12 }}
+                        whileTap={{ scale: 0.9 }}
+                        type="button"
+                        onClick={handleCopyContent}
+                        className={`liquid-glass-transparent-copy-btn ${copiedContent ? 'is-copied' : ''}`}
+                        title={copiedContent ? "Note Copied!" : "Copy Note"}
+                        aria-label={copiedContent ? "Note copied to clipboard" : "Copy note"}
+                      >
+                        <AnimatePresence mode="wait" initial={false}>
+                          {copiedContent ? (
+                            <motion.span
+                              key="copied-check"
+                              initial={{ opacity: 0, scale: 0.7 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.7 }}
+                              transition={{ duration: 0.15 }}
+                              className="flex items-center justify-center text-emerald-600"
+                            >
+                              <Check className="w-4 h-4 stroke-[2.6]" />
+                            </motion.span>
+                          ) : (
+                            <motion.span
+                              key="copy-icon"
+                              initial={{ opacity: 0, scale: 0.7 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ opacity: 0, scale: 0.7 }}
+                              transition={{ duration: 0.15 }}
+                              className="flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors"
+                            >
+                              <Copy className="w-4 h-4 stroke-[2.2]" />
+                            </motion.span>
+                          )}
+                        </AnimatePresence>
+                      </motion.button>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <RichEditable
+                  ref={contentEditorRef}
+                  placeholder="Start typing your note here..."
+                  initialValue={content}
+                  onChange={val => setContent(val)}
+                  onFocus={() => {
+                    lastActiveEditorRef.current = 'content';
+                  }}
+                  defaultColor="#334155"
+                  activeColor={selectedColor}
+                  isSingleLine={false}
+                  className="w-full flex-1 min-h-[50vh] bg-transparent text-base sm:text-lg md:text-xl leading-relaxed font-normal pt-2 sm:pt-4 px-2 sm:px-4"
+                  style={{
+                    minHeight: '50vh',
+                  }}
+                />
+              </div>
             </div>
 
             {/* Footer Toolbar */}

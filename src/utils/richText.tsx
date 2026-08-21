@@ -13,6 +13,30 @@ export function stripHtml(html: string): string {
 }
 
 /**
+ * Converts rich editor HTML into clean plain text for clipboard,
+ * preserving newlines for block elements & br tags, decoding entities.
+ */
+export function htmlToPlainText(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/h[1-6]>/gi, '\n')
+    .replace(/<p[^>]*>/gi, '')
+    .replace(/<div[^>]*>/gi, '')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+}
+
+/**
  * Safe HTML renderer for rich formatted note preview cards and lines
  */
 export function RichTextRenderer({ 
