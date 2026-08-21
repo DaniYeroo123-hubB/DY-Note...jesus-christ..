@@ -265,6 +265,30 @@ body{
         inset 0 0 35px 0 rgba(255, 255, 255, 0.4);
 }
 
+/* Auto Save Status Liquid Glass Button */
+.auto-save-custom-btn {
+    border-radius: 29px;
+    background: rgba(255, 255, 255, 0.018);
+    backdrop-filter: blur(0px) saturate(100%) contrast(100%) brightness(1.0);
+    -webkit-backdrop-filter: blur(0px) saturate(100%) contrast(100%) brightness(1.0);
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    box-shadow:
+        0 30px 60px rgba(0, 0, 0, 0.42),
+        0 12px 30px rgba(0, 0, 0, 0.18),
+        0 0 35px rgba(255, 255, 255, 0.08),
+        inset 0 1.5px 2px rgba(255, 255, 255, 0.65),
+        inset 0 -1.5px 2px rgba(0, 0, 0, 0.18),
+        inset 1px 0 1px rgba(255, 255, 255, 0.28),
+        inset -1px 0 1px rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+    color: #1a1a1c;
+    cursor: pointer;
+    transition:
+        transform 0.3s ease,
+        background 0.3s ease,
+        box-shadow 0.3s ease;
+}
+
 .glass-pill {
     background: transparent !important;
     backdrop-filter: none;
@@ -793,6 +817,134 @@ body{
     box-shadow:
         0 4px 12px -3px rgba(0, 0, 0, 0.12),
         inset 0 1.5px 2px 0 rgba(0, 0, 0, 0.08);
+}
+
+/* Endless Multicolor Gemini Aura Glow for Save Button */
+@keyframes gemini-aurora-spin-endless {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes gemini-aurora-spin-reverse-endless {
+    0% {
+        transform: rotate(360deg);
+    }
+    100% {
+        transform: rotate(0deg);
+    }
+}
+
+.gemini-save-border-glow {
+    position: absolute;
+    inset: -2px;
+    border-radius: 9999px;
+    background: conic-gradient(
+        from 0deg,
+        #4285F4 0%,
+        #9B51E0 20%,
+        #FF2D55 40%,
+        #FF9500 60%,
+        #34C759 80%,
+        #00C7BE 90%,
+        #4285F4 100%
+    );
+    animation: gemini-aurora-spin-endless 3s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.gemini-save-border-glow-soft {
+    position: absolute;
+    inset: -3.5px;
+    border-radius: 9999px;
+    background: conic-gradient(
+        from 180deg,
+        #4285F4 0%,
+        #9B51E0 25%,
+        #FF2D55 50%,
+        #34C759 75%,
+        #4285F4 100%
+    );
+    filter: blur(4px) saturate(200%);
+    opacity: 0.85;
+    animation: gemini-aurora-spin-reverse-endless 3.5s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* Unsaved Dynamic Pulse & Shimmer for Save Button in Editor */
+@keyframes save-unsaved-pulse {
+    0%, 100% {
+        box-shadow:
+            0 10px 28px -6px rgba(0, 122, 255, 0.35),
+            0 4px 12px -2px rgba(0, 122, 255, 0.2),
+            inset 0 2px 1.5px 0 rgba(255, 255, 255, 1),
+            inset 0 -1.5px 2px 0 rgba(0, 122, 255, 0.15),
+            inset 0 0 16px 0 rgba(0, 122, 255, 0.35),
+            0 0 0 0 rgba(0, 122, 255, 0.45);
+        border-color: rgba(0, 122, 255, 0.65);
+    }
+    50% {
+        box-shadow:
+            0 16px 36px -4px rgba(0, 122, 255, 0.55),
+            0 6px 18px -2px rgba(0, 122, 255, 0.3),
+            inset 0 2.5px 2px 0 rgba(255, 255, 255, 1),
+            inset 0 -1.5px 2px 0 rgba(0, 122, 255, 0.25),
+            inset 0 0 24px 0 rgba(0, 122, 255, 0.5),
+            0 0 0 4px rgba(0, 122, 255, 0.22);
+        border-color: rgba(0, 122, 255, 0.95);
+    }
+}
+
+@keyframes save-shimmer-sweep {
+    0% {
+        transform: translateX(-150%) skewX(-25deg);
+        opacity: 0;
+    }
+    25% {
+        opacity: 0.9;
+    }
+    75% {
+        opacity: 0.9;
+    }
+    100% {
+        transform: translateX(250%) skewX(-25deg);
+        opacity: 0;
+    }
+}
+
+.liquid-glass-capsule.is-unsaved {
+    animation: save-unsaved-pulse 2s ease-in-out infinite;
+    background: linear-gradient(
+        135deg,
+        rgba(255, 255, 255, 0.92) 0%,
+        rgba(224, 242, 254, 0.7) 50%,
+        rgba(255, 255, 255, 0.88) 100%
+    ) !important;
+    border-color: rgba(0, 122, 255, 0.7) !important;
+}
+
+.liquid-glass-capsule .save-shimmer-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.8) 50%,
+        transparent 100%
+    );
+    animation: save-shimmer-sweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    pointer-events: none;
+    z-index: 5;
 }
 
 .liquid-glass-btn-sm {

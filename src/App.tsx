@@ -164,6 +164,12 @@ export default function App() {
   const contentEditorRef = useRef<RichEditableRef>(null);
   const lastActiveEditorRef = useRef<'title' | 'content'>('content');
 
+  // Auto-save state and refs (Debounced 3-second auto-save to localStorage)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'pending' | 'saving' | 'saved'>('idle');
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isInitialEditorLoadRef = useRef(true);
+  const lastSavedSnapshotRef = useRef<string>('');
+
   // Undo Delete state
   const [deletedNoteInfo, setDeletedNoteInfo] = useState<DeletedNoteState | null>(null);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -174,11 +180,18 @@ export default function App() {
       if (undoTimerRef.current) {
         clearTimeout(undoTimerRef.current);
       }
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
     };
   }, []);
 
   // Open note editor for new note
   const handleOpenNewNote = () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     playPopSound();
     setActiveNoteId(null);
     setTitle('');
@@ -187,11 +200,18 @@ export default function App() {
     setSelectedColor('#000000');
     setIsColorPickerOpen(false);
     lastActiveEditorRef.current = 'content';
+    isInitialEditorLoadRef.current = true;
+    lastSavedSnapshotRef.current = JSON.stringify({ title: '', content: '', isPinned: false, color: '#000000' });
+    setAutoSaveStatus('idle');
     setIsEditorOpen(true);
   };
 
   // Open note editor for existing note
   const handleEditNote = (note: Note) => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     playPopSound();
     setActiveNoteId(note.id);
     setTitle(note.title);
@@ -200,8 +220,32 @@ export default function App() {
     setSelectedColor(note.accentColor || note.color || '#000000');
     setIsColorPickerOpen(false);
     lastActiveEditorRef.current = 'content';
+    isInitialEditorLoadRef.current = true;
+    lastSavedSnapshotRef.current = JSON.stringify({
+      title: note.title,
+      content: note.content,
+      isPinned: !!note.isPinned,
+      color: note.accentColor || note.color || '#000000',
+    });
+    setAutoSaveStatus('idle');
     setIsEditorOpen(true);
   };
+
+  // Track if content has changed since opening / last save
+  const hasUnsavedChanges = useMemo(() => {
+    if (!isEditorOpen) return false;
+    const currentSnapshot = JSON.stringify({
+      title,
+      content,
+      isPinned,
+      color: selectedColor,
+    });
+    if (currentSnapshot !== lastSavedSnapshotRef.current) {
+      // Must have actual content or be an existing note that has been modified
+      return Boolean(stripHtml(title).trim() || stripHtml(content).trim() || activeNoteId);
+    }
+    return false;
+  }, [title, content, isPinned, selectedColor, isEditorOpen, activeNoteId]);
 
   // Apply chosen color to whichever editor is focused or has text selected
   const handleColorSelect = (newColor: string) => {
@@ -238,8 +282,137 @@ export default function App() {
     }
   };
 
-  // Save current note
+  // Debounced Auto-Save Effect (3 Seconds)
+  useEffect(() => {
+    if (!isEditorOpen) {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+      return;
+    }
+
+    // Skip trigger on immediate modal opening
+    if (isInitialEditorLoadRef.current) {
+      isInitialEditorLoadRef.current = false;
+      return;
+    }
+
+    const currentSnapshot = JSON.stringify({
+      title,
+      content,
+      isPinned,
+      color: selectedColor,
+    });
+
+    if (currentSnapshot === lastSavedSnapshotRef.current) {
+      return;
+    }
+
+    const plainTitle = stripHtml(title).trim();
+    const plainContent = stripHtml(content).trim();
+
+    // If both fields are empty and no active note ID, avoid auto-creating blank notes
+    if (!plainTitle && !plainContent && !activeNoteId) {
+      return;
+    }
+
+    setAutoSaveStatus('pending');
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      setAutoSaveStatus('saving');
+
+      const finalTitleHtml = titleEditorRef.current?.getHtml() || title;
+      const finalContentHtml = contentEditorRef.current?.getHtml() || content;
+      const pTitle = stripHtml(finalTitleHtml).trim();
+      const pContent = stripHtml(finalContentHtml).trim();
+
+      if (!pTitle && !pContent && !activeNoteId) {
+        setAutoSaveStatus('idle');
+        return;
+      }
+
+      const now = Date.now();
+      const noteColor = selectedColor || '#000000';
+      const cleanTitle = finalTitleHtml.trim() || 'Untitled Note';
+      const cleanContent = finalContentHtml.trim();
+
+      if (activeNoteId) {
+        setNotes(prev => {
+          const updated = prev.map(n =>
+            n.id === activeNoteId
+              ? {
+                  ...n,
+                  title: cleanTitle,
+                  content: cleanContent,
+                  isPinned,
+                  color: noteColor,
+                  accentColor: noteColor,
+                  updatedAt: now,
+                }
+              : n
+          );
+          try {
+            localStorage.setItem('dy_notes_clean_data', JSON.stringify(updated));
+          } catch {
+            // LocalStorage fallback
+          }
+          return updated;
+        });
+      } else {
+        const newId = `note-${now}-${Math.random().toString(36).substring(2, 6)}`;
+        const newNote: Note = {
+          id: newId,
+          title: cleanTitle,
+          content: cleanContent,
+          isPinned,
+          color: noteColor,
+          accentColor: noteColor,
+          updatedAt: now,
+        };
+        setActiveNoteId(newId);
+        setNotes(prev => {
+          const updated = [newNote, ...prev];
+          try {
+            localStorage.setItem('dy_notes_clean_data', JSON.stringify(updated));
+          } catch {
+            // LocalStorage fallback
+          }
+          return updated;
+        });
+      }
+
+      lastSavedSnapshotRef.current = JSON.stringify({
+        title: finalTitleHtml,
+        content: finalContentHtml,
+        isPinned,
+        color: selectedColor,
+      });
+
+      setAutoSaveStatus('saved');
+
+      setTimeout(() => {
+        setAutoSaveStatus(curr => (curr === 'saved' ? 'idle' : curr));
+      }, 2500);
+    }, 3000); // Debounced 3 seconds
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, [title, content, isPinned, selectedColor, isEditorOpen, activeNoteId]);
+
+  // Save current note (manual Save button or Back navigation)
   const handleSaveNote = () => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
     playClickSound();
     setIsColorPickerOpen(false);
 
@@ -258,8 +431,8 @@ export default function App() {
     const noteColor = selectedColor || '#000000';
     if (activeNoteId) {
       // Update
-      setNotes(prev =>
-        prev.map(n =>
+      setNotes(prev => {
+        const updated = prev.map(n =>
           n.id === activeNoteId
             ? {
                 ...n,
@@ -271,8 +444,14 @@ export default function App() {
                 updatedAt: now,
               }
             : n
-        )
-      );
+        );
+        try {
+          localStorage.setItem('dy_notes_clean_data', JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+        return updated;
+      });
     } else {
       // Create new
       const newNote: Note = {
@@ -284,7 +463,15 @@ export default function App() {
         accentColor: noteColor,
         updatedAt: now,
       };
-      setNotes(prev => [newNote, ...prev]);
+      setNotes(prev => {
+        const updated = [newNote, ...prev];
+        try {
+          localStorage.setItem('dy_notes_clean_data', JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+        return updated;
+      });
     }
 
     setIsEditorOpen(false);
@@ -789,6 +976,54 @@ export default function App() {
                 </motion.button>
               </div>
 
+              {/* Auto-save status feedback badge */}
+              <div className="flex items-center justify-center select-none">
+                <AnimatePresence mode="wait">
+                  {autoSaveStatus === 'pending' && (
+                    <motion.div
+                      key="pending"
+                      initial={{ opacity: 0, y: -4, scale: 0.92 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.92 }}
+                      transition={{ duration: 0.2 }}
+                      style={{ padding: '9px' }}
+                      className="auto-save-custom-btn flex items-center gap-1.5 text-xs font-medium"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                      <span className="leading-none text-slate-800 font-semibold">Auto-saving in 3s...</span>
+                    </motion.div>
+                  )}
+                  {autoSaveStatus === 'saving' && (
+                    <motion.div
+                      key="saving"
+                      initial={{ opacity: 0, y: -4, scale: 0.92 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.92 }}
+                      transition={{ duration: 0.2 }}
+                      style={{ padding: '9px' }}
+                      className="auto-save-custom-btn flex items-center gap-1.5 text-xs font-semibold text-sky-700"
+                    >
+                      <span className="w-2 h-2 rounded-full bg-sky-500 animate-ping" />
+                      <span className="leading-none">Saving...</span>
+                    </motion.div>
+                  )}
+                  {autoSaveStatus === 'saved' && (
+                    <motion.div
+                      key="saved"
+                      initial={{ opacity: 0, y: -4, scale: 0.92 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 4, scale: 0.92 }}
+                      transition={{ duration: 0.2 }}
+                      style={{ padding: '9px' }}
+                      className="auto-save-custom-btn flex items-center gap-1.5 text-xs font-semibold text-emerald-700"
+                    >
+                      <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                      <span className="leading-none">Auto-saved</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
               <div 
                 className="flex items-center gap-2.5 sm:gap-3"
                 style={{ paddingLeft: '10px', paddingRight: '0px', paddingTop: '0px', paddingBottom: '10px', marginLeft: '0px', marginTop: '-10px', marginBottom: '7px', marginRight: '-10px', height: '55px' }}
@@ -827,39 +1062,50 @@ export default function App() {
                   </motion.button>
                 )}
 
-                {/* Save Button */}
-                <motion.button
-                  whileHover={{ scale: 1.06 }}
-                  whileTap={{ scale: 0.94 }}
-                  animate={
-                    (title.length > 0 || content.length > 0)
-                      ? {
-                          scale: [1, 1.05, 1],
-                          boxShadow: [
-                            '0 10px 28px -6px rgba(0, 122, 255, 0.2), inset 0 2px 1.5px 0 rgba(255, 255, 255, 1)',
-                            '0 14px 34px -4px rgba(0, 122, 255, 0.5), inset 0 2px 1.5px 0 rgba(255, 255, 255, 1), 0 0 0 3px rgba(0, 122, 255, 0.25)',
-                            '0 10px 28px -6px rgba(0, 122, 255, 0.2), inset 0 2px 1.5px 0 rgba(255, 255, 255, 1)',
-                          ],
-                        }
-                      : { scale: 1 }
-                  }
-                  transition={
-                    (title.length > 0 || content.length > 0)
-                      ? {
-                          duration: 1.8,
-                          repeat: Infinity,
-                          ease: 'easeInOut',
-                        }
-                      : { duration: 0.2 }
-                  }
-                  type="button"
-                  onClick={handleSaveNote}
-                  className="liquid-glass-capsule px-5 font-extrabold text-slate-900 cursor-pointer"
-                  title="Save and Close"
-                  style={!(title || content) && !activeNoteId ? { paddingLeft: '14px', paddingTop: '0px', paddingRight: '14px', paddingBottom: '0px', marginLeft: '0px', marginRight: '7px', marginTop: '7px', marginBottom: '0px' } : undefined}
-                >
-                  <span>Save</span>
-                </motion.button>
+                {/* Save Button with Endless Multi-Color Gemini Border Glow visible ONLY when there are unsaved changes */}
+                <div className="relative inline-flex items-center justify-center p-[2px] rounded-full">
+                  {hasUnsavedChanges && (
+                    <>
+                      <div className="gemini-save-border-glow-soft" />
+                      <div className="gemini-save-border-glow" />
+                    </>
+                  )}
+                  <motion.button
+                    whileHover={{ scale: 1.06 }}
+                    whileTap={{ scale: 0.94 }}
+                    animate={
+                      hasUnsavedChanges
+                        ? {
+                            scale: [1, 1.04, 1],
+                          }
+                        : { scale: 1 }
+                    }
+                    transition={
+                      hasUnsavedChanges
+                        ? {
+                            duration: 2,
+                            repeat: Infinity,
+                            ease: 'easeInOut',
+                          }
+                        : { duration: 0.2 }
+                    }
+                    type="button"
+                    onClick={handleSaveNote}
+                    className={`liquid-glass-capsule relative overflow-hidden px-5 font-extrabold text-slate-900 cursor-pointer z-10 ${
+                      hasUnsavedChanges ? 'is-unsaved' : ''
+                    }`}
+                    title={hasUnsavedChanges ? "Save changes (Unsaved changes detected)" : "Save and Close"}
+                    style={!(title || content) && !activeNoteId ? { paddingLeft: '14px', paddingTop: '0px', paddingRight: '14px', paddingBottom: '0px', marginLeft: '0px', marginRight: '7px', marginTop: '7px', marginBottom: '0px' } : undefined}
+                  >
+                    {hasUnsavedChanges && <span className="save-shimmer-layer" />}
+                    <span className="relative z-10 flex items-center gap-1.5">
+                      {hasUnsavedChanges && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
+                      )}
+                      <span>Save</span>
+                    </span>
+                  </motion.button>
+                </div>
               </div>
             </div>
 
